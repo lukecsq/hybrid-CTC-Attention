@@ -14,9 +14,9 @@ import torch.utils.data
 import numpy as np
 
 from utils.utils import CTCLabelConverter, AttnLabelConverter, Averager
-from utils.dataset import LmdbDataset,AlignCollate, Batch_Balanced_Dataset
-from mtl_model import Model as MTLModel
-from mtl_test import validation as mtl_validation
+from utils.dataset import LmdbDataset,AlignCollate, Batch_Dataset
+from model import Model as MyModel
+from validation import validation as mtl_validation
 import logging
 logging.basicConfig(
             format='[%(asctime)s] [%(filename)s]:[line:%(lineno)d] [%(levelname)s] %(message)s', level=logging.INFO)
@@ -26,15 +26,12 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def train(opt):
     #logging.info(opt)
-    """ dataset preparation """
-
-    train_dataset = Batch_Balanced_Dataset(opt)
-
+    train_dataset = Batch_Dataset(opt)
     AlignCollate_valid = AlignCollate(imgH=opt.imgH, imgW=opt.imgW, keep_ratio_with_pad=opt.PAD)
     valid_dataset = LmdbDataset(root=opt.valid_data, opt=opt)
     valid_loader = torch.utils.data.DataLoader(
         valid_dataset, batch_size=opt.batch_size,
-        shuffle=True,  # 'True' to check training progress with validation function.
+        shuffle=True,
         num_workers=int(opt.workers),
         collate_fn=AlignCollate_valid, pin_memory=True)
     print('-' * 80)
@@ -50,15 +47,10 @@ def train(opt):
     print("attention num class {}".format(len(attn_converter.character)))
 
 
-
     if opt.rgb:
         opt.input_channel = 3
 
-    model = MTLModel(opt)
-
-    print('model input parameters', opt.imgH, opt.imgW, opt.num_fiducial, opt.input_channel, opt.output_channel,
-          opt.hidden_size, opt.num_class, opt.batch_max_length, opt.FeatureExtraction,
-          opt.SequenceModeling)
+    model = MyModel(opt)
 
     # weight initialization
     for name, param in model.named_parameters():
@@ -70,36 +62,32 @@ def train(opt):
                 init.constant_(param, 0.0)
             elif 'weight' in name:
                 init.kaiming_normal_(param)
-        except Exception as e:  # for batchnorm.
+        except Exception as e:
             if 'weight' in name:
                 param.data.fill_(1)
             continue
 
-    # data parallel for multi-GPU
+
     model = torch.nn.DataParallel(model).to(device)
 
     model.train()
     if opt.continue_model != '':
         print('loading pretrained model from {}'.format(opt.continue_model))
         model.load_state_dict(torch.load(opt.continue_model))
-    #print("Model:")
-    #print(model)
+
 
     """ setup loss """
     ctc_criterion = torch.nn.CTCLoss(zero_infinity=True).to(device)
     attn_criterion = torch.nn.CrossEntropyLoss(ignore_index=0).to(device)
 
-    # loss averager
     loss_avg = Averager()
-    # filter that only require gradient decent
     filtered_parameters = []
     params_num = []
     for p in filter(lambda p: p.requires_grad, model.parameters()):
         filtered_parameters.append(p)
         params_num.append(np.prod(p.size()))
     print('Trainable params num : ', sum(params_num))
-    # [print(name, p.numel()) for name, p in filter(lambda p: p[1].requires_grad, model.named_parameters())]
-    # setup optimizer
+
     if opt.adam:
         optimizer = optim.Adam(filtered_parameters, lr=opt.lr, betas=(opt.beta1, 0.999))
     else:
@@ -124,7 +112,6 @@ def train(opt):
 
     start_time = time.time()
     best_accuracy = -1
-    best_norm_ED = 1e+6
     i = start_iter
 
     while True:
@@ -142,10 +129,10 @@ def train(opt):
         ctc_preds, attn_preds = model(image, attn_text)
         ctc_preds = ctc_preds.log_softmax(2)
         preds_size = torch.IntTensor([ctc_preds.size(1)] * batch_size)
-        ctc_preds = ctc_preds.permute(1, 0, 2)  # to use CTCLoss format
+        ctc_preds = ctc_preds.permute(1, 0, 2)
         ctc_cost = ctc_criterion(ctc_preds, ctc_text, preds_size, ctc_length)
         # attn loss
-        target = attn_text[:, 1:]  # without [GO] Symbol
+        target = attn_text[:, 1:]
         attn_cost = attn_criterion(attn_preds.view(-1, attn_preds.shape[-1]), target.contiguous().view(-1))
         cost = opt.ctc_weight * ctc_cost + (1.0 - opt.ctc_weight) * attn_cost
 
@@ -161,7 +148,6 @@ def train(opt):
             logging.info('[{}/{}] Loss: {:0.5f} elapsed_time: {:0.5f}'.format(i,opt.num_iter,loss_avg.val(),elapsed_time))
             # for log
             with open(osj(opt.outPath, '{}/log_train.txt'.format(opt.experiment_name)), 'a') as log:
-            #with open('./saved_models/{}/log_train.txt'.format(opt.experiment_name), 'a') as log:
                 log.write('[{}/{}] Loss: {:0.5f} elapsed_time: {:0.5f}\n'.format(i,opt.num_iter,loss_avg.val(),elapsed_time ))
                 loss_avg.reset()
 
@@ -180,12 +166,11 @@ def train(opt):
                     log.write('{:20s}, gt: {:20s},   {}\n'.format(pred, gt, str(pred == gt)))
 
                 valid_log = '[{}/{}] valid loss: {:0.5f}'.format(i, opt.num_iter, valid_loss)
-                valid_log += ' accuracy: {:0.3f},' \
-                                 ' ctc_accuracy: {:0.3f}'.format(current_accuracy, ctc_accuracy)
+                valid_log += ' accuracy: {:0.3f}'.format(current_accuracy)
 
                 log.write(valid_log + '\n')
 
-                # keep best accuracy model
+                # save best accuracy model
                 if current_accuracy > best_accuracy:
                     best_accuracy = current_accuracy
                     torch.save(model.state_dict(),
@@ -225,8 +210,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--outPath', type=str, default='./saved_models/', help='Where to store models')
     parser.add_argument('--experiment_name', type=str, default='', help='subfolder of the output ')
-    parser.add_argument('--train_data', required=True, help='path to training dataset')
-    parser.add_argument('--valid_data', required=True, help='path to validation dataset')
+    parser.add_argument('--train_data', required=True, default='./lmdb/train_lmdb/', help='path to training dataset')
+    parser.add_argument('--valid_data', required=True, default='./lmdb/val_lmdb/', help='path to validation dataset')
     parser.add_argument('--manualSeed', type=int, default=0, help='for random seed setting')
     parser.add_argument('--workers', type=int, help='number of data loading workers', default=6)
     parser.add_argument('--batch_size', type=int, default=64, help='input batch size')
@@ -255,7 +240,7 @@ if __name__ == '__main__':
     parser.add_argument('--input_channel', type=int, default=1, help='the number of input channel of Feature extractor')
     parser.add_argument('--output_channel', type=int, default=512,
                         help='the number of output channel of Feature extractor')
-    parser.add_argument('--hidden_size', type=int, default=256, help='the size of the LSTM hidden state')
+    parser.add_argument('--hidden_size', type=int, default=512, help='the size of the LSTM hidden state')
 
     opt = parser.parse_args()
 

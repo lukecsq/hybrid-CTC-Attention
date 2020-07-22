@@ -1,31 +1,41 @@
-# hybrid CTC-Attention Decoder
+# Hybrid CTC-Attention Decoder with Subword Units for the End-to-End Chinese Text Recognition
 
-### Dependency
-- requirements :Python3, PyTorch 1.1, lmdb, pillow, torchvision
+This is an implementation of paper "Hybrid CTC-Attention Decoder with Subword Units for the End-to-End Chinese Text Recognition". 
 
+## Dependency
 
+- requirements :Python3.5,  PyTorch v1.1.0,  torchvision,  lmdb,  pillow,  numpy
 
-### How to use
+## How to use
 
-First of all,  you should use  *./Tools/genSubword_ch.cpp*  to get statistics on the high-frequency subwords in the dataset.
+Follow the following steps to train a new model on your own dataset.
 
-```shell
-$ cd Tools
-$ g++ -std=c++11 genSubword_ch.cpp -o genSubword_ch`
-$ ./genSubword_ch
-```
+### Preparation
 
-Then, move the generated file .*/Tools/Chs_subword.txt* to *./config/*
+1. Create a new LMDB dataset. A python program is provided in ``Tools/create_dataset.py``. Refer to the function ``createDataset`` for details (need to ``pip install lmdb`` first).
 
-##### Train
+2. Create the high-frequency subwords units. A C++ program is provided in ``Tools/genSubword_ch.cpp``. Refer to the function ``splitTxtCh`` for details. 
 
-```shell
-python train.py
-```
+   ```shell
+   $ cd Tools
+   $ g++ -std=c++11 genSubword_ch.cpp -o genSubword_ch
+   $ ./genSubword_ch
+   ```
 
-##### Test
+   Then, move the generated file  ``./Tools/Chs_subword.txt ``  to   ``./config/``
+
+### Training
 
 ```shell
 python test.py
 ```
 
+### Testing
+
+```shell
+python test.py
+```
+
+## Citation
+
+If you find our method useful for your reserach, please cite:

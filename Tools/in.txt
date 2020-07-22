@@ -1,0 +1,7 @@
+这里放的是数据集的标注文本（ground truth）
+每行一个标注文本
+用于统计字符集和subwords集
+xxx
+xxxxx
+xxxxxx
+...
