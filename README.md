@@ -10,6 +10,24 @@ This is an implementation of paper "Hybrid CTC-Attention Decoder with Subword Un
 
 Follow the following steps to train a new model on your own dataset.
 
+## Dataset preparation
+
+Download the training, validation and testing dataset
+
+① Variable length Synth-Chs. The dataset can be downloaded from here.
+
+② CASIA-HWDB 2.0-2.2. The dataset can be downloaded from 
+
+[here]: http://www.nlpr.ia.ac.cn/databases/handwriting/Download.html
+
+.
+
+③ ICDAR2017 MLT. The dataset can be downloaded from 
+
+[here]: https://rrc.cvc.uab.es/?ch=8&amp;com=downloads
+
+.
+
 ### Preparation
 
 1. Create a new LMDB dataset. A python program is provided in ``Tools/create_dataset.py``. Refer to the function ``createDataset`` for details (need to ``pip install lmdb`` first).
